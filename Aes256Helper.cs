@@ -1,66 +1,59 @@
 ﻿using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace Netchat
 {
     public static class Aes256Helper
     {
-        public static byte[] Encrypt(string plainText, byte[] key, byte[] iv)
+        public static byte[] Encrypt(string plainText, byte[] key)
         {
-            if (plainText == null || plainText.Length <= 0)
-                throw new ArgumentNullException(nameof(plainText));
-            if (key == null || key.Length != 32)
-                throw new ArgumentException("Key must be 32 bytes for AES-256.", nameof(key));
-            if (iv == null || iv.Length != 16)
-                throw new ArgumentException("IV must be 16 bytes.", nameof(iv));
+            byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
+            byte[] iv = RandomNumberGenerator.GetBytes(16);
 
-            byte[] encrypted;
-
-            using (Aes aesAlg = Aes.Create())
+            byte[] cipher;
+            using (var aes = Aes.Create())
             {
-                aesAlg.Key = key;
-                aesAlg.IV = iv;
-
-                ICryptoTransform encryptor = aesAlg.CreateEncryptor(aesAlg.Key, aesAlg.IV);
-
-                using MemoryStream msEncrypt = new();
-                using CryptoStream csEncrypt = new(msEncrypt, encryptor, CryptoStreamMode.Write);
-                using (StreamWriter swEncrypt = new(csEncrypt))
-                {
-                    swEncrypt.Write(plainText);
-                }
-                encrypted = msEncrypt.ToArray();
+                aes.Key = key; aes.IV = iv;
+                using var enc = aes.CreateEncryptor();
+                cipher = enc.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
             }
 
-            return encrypted;
+            // MAC от IV || cipher
+            byte[] macInput = new byte[iv.Length + cipher.Length];
+            Buffer.BlockCopy(iv, 0, macInput, 0, iv.Length);
+            Buffer.BlockCopy(cipher, 0, macInput, iv.Length, cipher.Length);
+            byte[] mac = HMACSHA256.HashData(key, macInput);
+
+            byte[] result = new byte[iv.Length + cipher.Length + mac.Length];
+            Buffer.BlockCopy(iv, 0, result, 0, iv.Length);
+            Buffer.BlockCopy(cipher, 0, result, iv.Length, cipher.Length);
+            Buffer.BlockCopy(mac, 0, result, iv.Length + cipher.Length, mac.Length);
+            return result;
         }
 
-        public static string Decrypt(byte[] cipherText, byte[] key, byte[] iv)
+        public static string Decrypt(byte[] data, byte[] key)
         {
-            if (cipherText == null || cipherText.Length <= 0)
-                throw new ArgumentNullException(nameof(cipherText));
-            if (key == null || key.Length != 32)
-                throw new ArgumentException("Key must be 32 bytes for AES-256.", nameof(key));
-            if (iv == null || iv.Length != 16)
-                throw new ArgumentException("IV must be 16 bytes.", nameof(iv));
+            if (data.Length < 16 + 16 + 32) throw new InvalidDataException("too short");
 
-            string plaintext = "";
+            byte[] iv = data[..16];
+            byte[] mac = data[^32..];
+            byte[] cipher = data[16..^32];
 
-            using (Aes aesAlg = Aes.Create())
-            {
-                aesAlg.Key = key;
-                aesAlg.IV = iv;
+            byte[] macInput = new byte[iv.Length + cipher.Length];
+            Buffer.BlockCopy(iv, 0, macInput, 0, iv.Length);
+            Buffer.BlockCopy(cipher, 0, macInput, iv.Length, cipher.Length);
+            byte[] expected = HMACSHA256.HashData(key, macInput);
 
-                ICryptoTransform decryptor = aesAlg.CreateDecryptor(aesAlg.Key, aesAlg.IV);
+            if (!CryptographicOperations.FixedTimeEquals(mac, expected))
+                throw new InvalidDataException("MAC mismatch");
 
-                using MemoryStream msDecrypt = new(cipherText);
-                using CryptoStream csDecrypt = new(msDecrypt, decryptor, CryptoStreamMode.Read);
-                using StreamReader srDecrypt = new(csDecrypt);
-                plaintext = srDecrypt.ReadToEnd();
-            }
-
-            return plaintext;
+            using var aes = Aes.Create();
+            aes.Key = key; aes.IV = iv;
+            using var dec = aes.CreateDecryptor();
+            byte[] plain = dec.TransformFinalBlock(cipher, 0, cipher.Length);
+            return Encoding.UTF8.GetString(plain);
         }
     }
 }

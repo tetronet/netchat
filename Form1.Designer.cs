@@ -119,6 +119,7 @@
             textBox3.Name = "textBox3";
             textBox3.Size = new Size(664, 27);
             textBox3.TabIndex = 1;
+            textBox3.KeyPress += textBox3_KeyPress;
             // 
             // Messages
             // 

@@ -43,18 +43,16 @@ namespace Netchat
                         {
                             Messages.Invoke(delegate ()
                             {
-                                Messages.Items.Add("Received Message: " + Encoding.UTF8.GetString([..d.DataBytes]));
+                                Messages.Items.Add("Rx: " + Encoding.UTF8.GetString([.. d.DataBytes]));
                             });
                         }
                         if (d.ConnectionID == 22384114)
                         {
-                            byte[] iv = [.. d.DataBytes.Take(16)];
-                            byte[] data = [.. d.DataBytes.Skip(16)];
-                            Debug.WriteLine($"Encrypted message length is {data.Length} bytes.");
-                            string originalMessage = Aes256Helper.Decrypt(data, SHA256.HashData(Encoding.UTF8.GetBytes(textBox1.Text)), iv);
+                            Debug.WriteLine($"Encrypted message length is {d.DataBytes.Count} bytes.");
+                            string originalMessage = Aes256Helper.Decrypt([.. d.DataBytes], SHA256.HashData(Encoding.UTF8.GetBytes(textBox1.Text)));
                             Messages.Invoke(delegate ()
                             {
-                                Messages.Items.Add("Received Message: " + originalMessage);
+                                Messages.Items.Add("Rx: " + originalMessage);
                             });
                         }
                     }
@@ -68,6 +66,18 @@ namespace Netchat
 
         private void button1_Click(object sender, EventArgs e)
         {
+            TransmitCurrentMessage();
+        }
+
+        private void textBox3_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == '\n' || e.KeyChar == '\r')
+            {
+                TransmitCurrentMessage();
+            }
+        }
+        private void TransmitCurrentMessage()
+        {
             try
             {
                 if (textBox1.Text == "")
@@ -76,16 +86,11 @@ namespace Netchat
                 }
                 else
                 {
-                    byte[] iv = new byte[16];
-                    RandomNumberGenerator.Fill(iv);
-                    byte[] encryptedMessage = Aes256Helper.Encrypt(textBox3.Text, SHA256.HashData(Encoding.UTF8.GetBytes(textBox1.Text)), iv);
-                    byte[] encryptedMessageWithIv = new byte[16 + encryptedMessage.Length];
-                    
-                    iv.CopyTo(encryptedMessageWithIv, 0);
-                    encryptedMessage.CopyTo(encryptedMessageWithIv, 16);
-                    CommunicationModem?.Transmit(encryptedMessageWithIv, new(textBox2.Text), "message", 22384114);
+                    byte[] encryptedMessage = Aes256Helper.Encrypt(textBox3.Text, SHA256.HashData(Encoding.UTF8.GetBytes(textBox1.Text)));
+                    CommunicationModem?.Transmit(encryptedMessage, new(textBox2.Text), "message", 22384114);
                 }
-                Messages.Items.Add("Sent Message: " + textBox3.Text);
+                Messages.Items.Add("Tx: " + textBox3.Text);
+                textBox3.Clear();
             }
             catch (Exception ex)
             {
